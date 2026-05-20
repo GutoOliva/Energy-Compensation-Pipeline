@@ -1099,20 +1099,47 @@ def executar_pipeline(debug: bool = True, salvar: bool = True,
     return df
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ENTRY POINT
+# ENTRY POINT WITH COMMAND LINE ARGUMENTS
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='COPEL Energy Pipeline')
+    parser.add_argument('--test-mode', type=str, default='False', 
+                       help='Run in test mode (True/False)')
+    parser.add_argument('--test-month', type=int, default=3,
+                       help='Test month (1-12)')
+    parser.add_argument('--test-year', type=int, default=2026,
+                       help='Test year')
+    
+    args = parser.parse_args()
+    
+    # Convert string to boolean
+    modo_teste = args.test_mode.lower() == 'true'
+    
     try:
+        logger = logging.getLogger('COPEL_Pipeline')
+        logger.info(f"Starting pipeline - Test Mode: {modo_teste}")
+        if modo_teste:
+            logger.info(f"Test Period: {args.test_year}-{args.test_month:02d}")
+        
         df_resultado = executar_pipeline(
             debug=True,
             salvar=True,
-            modo_teste=False,  # Set to False for PRODUCTION
-            mes_teste=3,
-            ano_teste=2026
+            modo_teste=modo_teste,
+            mes_teste=args.test_month,
+            ano_teste=args.test_year
         )
-        sys.exit(0)  # Success
+        
+        if df_resultado is not None and not df_resultado.empty:
+            logger.info(f"✅ SUCCESS: Processed {len(df_resultado)} records")
+            sys.exit(0)
+        else:
+            logger.warning("⚠️  No data processed")
+            sys.exit(1)
+            
     except Exception as e:
-        logging.error(f"❌ PIPELINE FAILED: {e}")
-        sys.exit(1)  # Failure
+        logging.error(f"❌ PIPELINE FAILED: {e}", exc_info=True)
+        sys.exit(1)
 
