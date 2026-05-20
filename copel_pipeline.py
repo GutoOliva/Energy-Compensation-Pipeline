@@ -34,7 +34,10 @@ class Config:
     
     # Core Settings
     UC_GERADORA = "109441346"
-    GOOGLE_DRIVE_FOLDER_ID = "1VXPSxSo7r-j1mF0H31c159V4aMn1iGN2"
+    
+    # Google Drive Folder IDs
+    GOOGLE_DRIVE_INPUT_FOLDER_ID = "1uJ1KMCBQgqu61nq2psehWT_qpyo7GhmB"  # 02-Limpos (PDFs para processar)
+    GOOGLE_DRIVE_OUTPUT_FOLDER_ID = "1VXPSxSo7r-j1mF0H31c159V4aMn1iGN2"  # 03-Output (CSVs gerados)
     
     # Environment Detection
     @staticmethod
@@ -990,7 +993,8 @@ def salvar_outputs(df: pd.DataFrame, output_dir: Path, logger: logging.Logger,
     
     if drive_manager and not sufixo:
         try:
-            drive_manager.upload_results(Config.GOOGLE_DRIVE_FOLDER_ID, output_dir)
+            # Upload CSVs para pasta 03-Output
+            drive_manager.upload_results(Config.GOOGLE_DRIVE_OUTPUT_FOLDER_ID, output_dir)
         except Exception as e:
             logger.error(f"❌ Drive upload failed: {e}")
 
@@ -1036,7 +1040,8 @@ def executar_pipeline(debug: bool = True, salvar: bool = True,
         if os.getenv('GOOGLE_CREDENTIALS'):
             try:
                 drive_manager = GoogleDriveManager(logger)
-                drive_manager.download_pdfs(Config.GOOGLE_DRIVE_FOLDER_ID, paths['origem'])
+                # Baixar PDFs da pasta 02-Limpos
+                drive_manager.download_pdfs(Config.GOOGLE_DRIVE_INPUT_FOLDER_ID, paths['origem'])
             except Exception as e:
                 logger.error(f"❌ Drive error: {e}")
                 logger.info("Continuing with local files...")
@@ -1080,8 +1085,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     modo_teste = args.test_mode.lower() == 'true'
     
+    # Setup inicial
+    env = Config.detect_environment()
+    logger = setup_logging(env)
+    paths = Config.setup_paths(env)  # Definir paths ANTES do try
+    
     try:
-        logger = logging.getLogger('COPEL_Pipeline')
         logger.info(f"Test Mode: {modo_teste}")
         if modo_teste:
             logger.info(f"Period: {args.test_year}-{args.test_month:02d}")
