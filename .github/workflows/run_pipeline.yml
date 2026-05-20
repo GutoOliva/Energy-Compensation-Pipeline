@@ -1,40 +1,32 @@
-name: COPEL Energy Compensation Pipeline
+name: COPEL Energy Pipeline
 
 on:
-  # Execução agendada (todo dia às 2h AM - Horário UTC)
   schedule:
-    - cron: '0 5 * * *'  # 5 AM UTC = 2 AM BRT
-  
-  # Permite execução manual
-  workflow_dispatch:
+    - cron: '0 2 * * 1'  # Every Monday at 2 AM
+  workflow_dispatch:  # Manual trigger
     inputs:
       test_mode:
-        description: 'Run in test mode (single month)'
+        description: 'Run in test mode'
         required: false
         default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
       test_month:
         description: 'Test month (1-12)'
         required: false
         default: '3'
       test_year:
-        description: 'Test year (YYYY)'
+        description: 'Test year'
         required: false
         default: '2026'
 
 jobs:
-  run-pipeline:
-    name: Process COPEL Invoices
+  process-copel-invoices:
     runs-on: ubuntu-latest
     
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
       
-      - name: 🐍 Set up Python
+      - name: 🐍 Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -43,37 +35,67 @@ jobs:
       - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pandas pdfplumber pypdf pypdf2 google-api-python-client google-auth-httplib2 google-auth-oauthlib
       
-      - name: 🔍 Verify Python version
+      - name: 📁 Create directories
         run: |
-          python --version
-          pip list
+          mkdir -p data/01-Brutos
+          mkdir -p data/02-Limpos
+          mkdir -p data/03-Output
       
-      - name: ⚡ Run pipeline
+      - name: 🔐 Setup Google credentials
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          PYTHONUNBUFFERED: 1
         run: |
-          python energy_compensation_pipeline.py
+          if [ -z "$GOOGLE_CREDENTIALS" ]; then
+            echo "⚠️  WARNING: GOOGLE_CREDENTIALS not set, will use local files only"
+          else
+            echo "✅ Google credentials configured"
+          fi
       
-      - name: 📊 Upload results (backup)
+      - name: 🚀 Run COPEL pipeline
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          # Determine test mode parameters
+          if [ "${{ github.event.inputs.test_mode }}" == "true" ]; then
+            TEST_MODE="True"
+            TEST_MONTH="${{ github.event.inputs.test_month }}"
+            TEST_YEAR="${{ github.event.inputs.test_year }}"
+            echo "🧪 Running in TEST MODE: $TEST_YEAR-$TEST_MONTH"
+          else
+            TEST_MODE="False"
+            TEST_MONTH="3"
+            TEST_YEAR="2026"
+            echo "🏭 Running in PRODUCTION MODE"
+          fi
+          
+          # Run pipeline with dynamic parameters
+          python copel_pipeline.py --test-mode=$TEST_MODE --test-month=$TEST_MONTH --test-year=$TEST_YEAR
+      
+      - name: 📊 List generated files
+        run: |
+          echo "=== Generated Files ==="
+          find data/03-Output -type f -name "*.csv" || echo "No CSV files found"
+      
+      - name: 📤 Upload results
+        if: success()
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: pipeline-results-${{ github.run_number }}
+          name: copel-results-${{ github.run_number }}
           path: data/03-Output/*.csv
           retention-days: 30
           if-no-files-found: warn
       
-      - name: ✅ Pipeline completed
-        if: success()
+      - name: 📈 Generate summary
+        if: always()
         run: |
-          echo "✅ Pipeline completed successfully!"
-          echo "📊 Results uploaded to Google Drive"
-      
-      - name: ❌ Pipeline failed
-        if: failure()
-        run: |
-          echo "❌ Pipeline failed!"
-          echo "Check logs above for details"
+          echo "## 📊 Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -d "data/03-Output" ] && [ "$(ls -A data/03-Output/*.csv 2>/dev/null)" ]; then
+            echo "### ✅ Files Generated:" >> $GITHUB_STEP_SUMMARY
+            ls -lh data/03-Output/*.csv | awk '{print "- " $9 " (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ No files generated" >> $GITHUB_STEP_SUMMARY
+          fi
