@@ -245,10 +245,8 @@ def extrair_mes_ano_fatura(nome_arquivo: str) -> Tuple[Optional[int], Optional[i
     return None, None
 
 def calcular_mes_referencia(ano_emissao: int, mes_emissao: int) -> Tuple[int, int]:
-    """Calculate reference month (previous month)"""
-    if mes_emissao == 1:
-        return ano_emissao - 1, 12
-    return ano_emissao, mes_emissao - 1
+    """Retorna o mesmo mês e ano de emissão como referência."""
+    return ano_emissao, mes_emissao
 
 def arquivo_valido(nome: str) -> bool:
     """Check if file is valid (after Sep/2024)"""
