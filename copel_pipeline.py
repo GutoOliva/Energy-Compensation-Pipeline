@@ -276,6 +276,18 @@ def extrair_mes_ano_fatura(nome_arquivo: str) -> Tuple[Optional[int], Optional[i
         return int(m.group(2)), int(m.group(1))  # (year, month)
     return None, None
 
+def chave_ordenacao_fatura(nome_arquivo: str) -> Tuple[int, int, int, str]:
+    """Sort key safe for files outside the COPEL-MM-YYYY pattern.
+
+    Valid files come first, ordered by (year, month); files whose name does
+    not match the pattern go to the end, ordered by name, instead of raising
+    TypeError when comparing None with int.
+    """
+    ano, mes = extrair_mes_ano_fatura(nome_arquivo)
+    if ano is None:
+        return (1, 0, 0, nome_arquivo)
+    return (0, ano, mes, nome_arquivo)
+
 def calcular_mes_referencia(ano_emissao: int, mes_emissao: int) -> Tuple[int, int]:
     """Retorna o mesmo mês e ano de emissão como referência."""
     return ano_emissao, mes_emissao
@@ -748,7 +760,7 @@ def processar_limpeza(origem: Path, limpos: Path, logger: logging.Logger,
     processados = ignorados = 0
     arquivos = sorted(
         [(f.name, f) for f in origem.glob('**/*.pdf')],
-        key=lambda x: extrair_mes_ano_fatura(x[0])
+        key=lambda x: chave_ordenacao_fatura(x[0])
     )
     
     if teste_mes_ano:
@@ -851,7 +863,7 @@ def consolidar_dados(limpos: Path, logger: logging.Logger,
     registros = []
     arquivos = sorted(
         limpos.glob('**/*.pdf'),
-        key=lambda x: extrair_mes_ano_fatura(x.name)
+        key=lambda x: chave_ordenacao_fatura(x.name)
     )
     
     if teste_mes_ano:
@@ -1030,10 +1042,17 @@ def executar_pipeline(debug: bool = True, salvar: bool = True,
     logger.info("🚀 COPEL PIPELINE v5.1 - MÊS CORRIGIDO")
     logger.info("="*60)
     
+    # No Colab, montar o Drive ANTES de criar as pastas: setup_paths cria
+    # diretórios em /content/drive/..., e se eles existirem antes da montagem
+    # o mount falha (ponto de montagem não vazio) ou os esconde.
+    if env == 'colab':
+        from google.colab import drive as colab_drive
+        colab_drive.mount('/content/drive', force_remount=True)
+
     paths = Config.setup_paths(env)
     logger.info(f"📁 Source: {paths['origem']}")
     logger.info(f"📁 Output: {paths['output']}")
-    
+
     drive_manager = None
     if env == 'github_actions':
         # Verificar se credenciais do Google Drive existem
@@ -1047,10 +1066,7 @@ def executar_pipeline(debug: bool = True, salvar: bool = True,
                 logger.info("Continuing with local files...")
         else:
             logger.info("⚠️  Google Drive credentials not configured, using local files only")
-    elif env == 'colab':
-        from google.colab import drive as colab_drive
-        colab_drive.mount('/content/drive', force_remount=True)
-    
+
     teste_mes_ano = (ano_teste, mes_teste) if modo_teste else None
     
     processar_limpeza(paths['origem'], paths['limpos'], logger, teste_mes_ano)
@@ -1088,8 +1104,7 @@ if __name__ == "__main__":
     # Setup inicial
     env = Config.detect_environment()
     logger = setup_logging(env)
-    paths = Config.setup_paths(env)  # Definir paths ANTES do try
-    
+
     try:
         logger.info(f"Test Mode: {modo_teste}")
         if modo_teste:
@@ -1108,6 +1123,8 @@ if __name__ == "__main__":
             sys.exit(0)
         else:
             # Verifica se há arquivos para processar
+            # (paths só é resolvido aqui, depois que o pipeline já montou o Drive no Colab)
+            paths = Config.setup_paths(env)
             pdf_count = len(list(paths['origem'].glob('**/*.pdf')))
             if pdf_count == 0:
                 logger.warning("⚠️  No PDF files found - this is expected without Google Drive or local PDFs")
